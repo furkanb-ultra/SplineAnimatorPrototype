@@ -19,12 +19,12 @@ struct ImmersiveView: View {
     var body: some View {
         RealityView { content in
             let pts: [SIMD3<Float>] = [
-                [1.0, 1.0, -2.0],
-                [0.0, 1.0, -2.0],
-                [0.0, 2.0, -2.5],
-                [0.0, 1.0, -4.0],
-                [0.0, 2.0, -5.0],
-                [-1.0, 2.0, -5.0]
+                [1.0, 0.5, -3.0],
+                [0.5, 0.0, -2.0],
+                [-1.0, 1.0, -2.5],
+                [0.5, 2.0, -3.0],
+                [0.5, 0.0, -4.0],
+                [-1.0, 1.0, -5.0]
             ]
             let spline = Spline3D(pts)
             let ball = ModelEntity(
@@ -32,15 +32,14 @@ struct ImmersiveView: View {
                 materials: [SimpleMaterial(color: .orange, isMetallic: false)]
             )
             content.add(ball)
-            
-            //let animator = SimpleSplineAnimator(spline: spline, duration: 10.0)
+
             let animator = SplineAnimator(
                 spline: spline,
-                duration: 2.0,
-                easeInDuration: 0.3,
-                easeOutDuration: 0.3,
-                easeInCurve: VelocityCurves.linear,
-                easeOutCurve: VelocityCurves.quadraticIn,
+                duration: 10.0,
+                easeInDuration: 0.25,
+                easeOutDuration: 0.25,
+                easeInCurve: VelocityCurves.cubicIn,
+                easeOutCurve: VelocityCurves.cubicOut,
                 isLooping: true,
                 isPingPong: true
             )
@@ -60,13 +59,13 @@ struct ImmersiveView: View {
             } as? any Cancellable
         }
     }
-    private func visualizeSpline(_ spline: Spline3D, content: RealityViewContent, segments: Int = 1000) {
+    private func visualizeSpline(_ spline: Spline3D, content: RealityViewContent, segments: Int = 50) {
         for i in 0...segments {
             let fraction = Float(i) / Float(segments)
             let position = spline.point(atFraction: fraction)
             let sphere = ModelEntity(
                 mesh: .generateSphere(radius: 0.01),
-                materials: [SimpleMaterial(color: .blue.withAlphaComponent(0.1), isMetallic: false)]
+                materials: [UnlitMaterial(color: .blue.withAlphaComponent(0.5))]
             )
             sphere.position = position
             content.add(sphere)
