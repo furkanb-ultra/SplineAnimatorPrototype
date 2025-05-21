@@ -12,16 +12,19 @@ import Combine
 
 struct ImmersiveView: View {
     @State private var cancellable: Cancellable?
+    //aws@State private var animator: SimpleSplineAnimator?
     @State private var animator: SplineAnimator?
-
+    @State private var startTime: Date?
+    
     var body: some View {
         RealityView { content in
             let pts: [SIMD3<Float>] = [
-                [0.0, 3.0, -1.0],
-                [0.0, 0.0, -2.0],
+                [1.0, 1.0, -2.0],
+                [0.0, 1.0, -2.0],
                 [0.0, 2.0, -2.5],
                 [0.0, 1.0, -4.0],
-                [0.0, 2.0, -5.0]
+                [0.0, 2.0, -5.0],
+                [-1.0, 2.0, -5.0]
             ]
             let spline = Spline3D(pts)
             let ball = ModelEntity(
@@ -29,22 +32,55 @@ struct ImmersiveView: View {
                 materials: [SimpleMaterial(color: .orange, isMetallic: false)]
             )
             content.add(ball)
-
+            
+            //let animator = SimpleSplineAnimator(spline: spline, duration: 10.0)
             let animator = SplineAnimator(
                 spline: spline,
-                duration: 10,
-                easeIn: 0.2, // first 20% of time is ease-in
-                easeOut: 0.2, // last 20% of time is ease-out
-                easeInFunc: Easing.easeIn, // t*t
-                easeOutFunc: Easing.easeOut, // t*(2-t)
-                midFunc: Easing.linear
+                duration: 2.0,
+                easeInDuration: 0.3,
+                easeOutDuration: 0.3,
+                easeInCurve: VelocityCurves.linear,
+                easeOutCurve: VelocityCurves.quadraticIn,
+                isLooping: true,
+                isPingPong: true
             )
             self.animator = animator
+            self.startTime = Date()
+            
+            // Visualize the spline path
+            visualizeSpline(spline, content: content)
 
+            // Visualize the control points
+            visualizeControlPoints(pts, content: content)
+            
             cancellable = content.subscribe(to: SceneEvents.Update.self) { _ in
-                guard let animator = self.animator else { return }
-                ball.position = animator.position()
+                guard let animator = self.animator, let startTime = self.startTime else { return }
+                let elapsedTime = Float(Date().timeIntervalSince(startTime))
+                ball.position = animator.position(at: elapsedTime)
             } as? any Cancellable
+        }
+    }
+    private func visualizeSpline(_ spline: Spline3D, content: RealityViewContent, segments: Int = 1000) {
+        for i in 0...segments {
+            let fraction = Float(i) / Float(segments)
+            let position = spline.point(atFraction: fraction)
+            let sphere = ModelEntity(
+                mesh: .generateSphere(radius: 0.01),
+                materials: [SimpleMaterial(color: .blue.withAlphaComponent(0.1), isMetallic: false)]
+            )
+            sphere.position = position
+            content.add(sphere)
+        }
+    }
+
+    private func visualizeControlPoints(_ points: [SIMD3<Float>], content: RealityViewContent) {
+        for position in points {
+            let controlPointSphere = ModelEntity(
+                mesh: .generateSphere(radius: 0.025),
+                materials: [SimpleMaterial(color: .blue, isMetallic: false)]
+            )
+            controlPointSphere.position = position
+            content.add(controlPointSphere)
         }
     }
 }

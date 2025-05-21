@@ -1,114 +1,174 @@
 //
-//  SplineAnimator.swift
+//  SimpleSplineAnimator.swift
 //  Test
 //
 //  Created by Furkan on 21/05/25.
 //
+import Foundation
 import simd
-import QuartzCore
 
-private func integrate(_ f: (Float) -> Float, from: Float, to: Float, steps: Int = 50) -> Float {
-    var sum: Float = 0
-    let dt = (to - from) / Float(steps)
-    for i in 0..<steps {
-        let t0 = from + Float(i) * dt
-        let t1 = from + Float(i + 1) * dt
-        sum += 0.5 * (f(t0) + f(t1)) * dt
-    }
-    return sum
-}
+/// Velocity-matched, arc-length-correct spline animator with looping and ping-pong options.
+/// Use velocity curves (not progress curves!) for ease-in/ease-out.
+/// See the bottom for ready-to-use quadratic and cubic velocity curves.
 
-public class SplineAnimator {
-    public let spline: Spline3D
-    public let duration: Float
-    public let easeInTime: Float
-    public let easeOutTime: Float
-    public let easeInFunc: (Float) -> Float
-    public let easeOutFunc: (Float) -> Float
-    public let midFunc: (Float) -> Float
+final class SplineAnimator {
+    let spline: Spline3D
+    let duration: Float
 
-    // Precomputed region areas and distances
-    private let easeInArea: Float
-    private let easeOutArea: Float
-    private let easeInDistance: Float
-    private let easeOutDistance: Float
-    private let linearTime: Float
-    private let linearDistance: Float
-    private let totalDistance: Float
+    let easeInDuration: Float      // e.g. 0.2 means 20% of animation is ease-in
+    let easeOutDuration: Float     // e.g. 0.1 means last 10% is ease-out
+    let easeInCurve: (Float) -> Float   // velocity profile: t in 0...1 → velocity in 0...1
+    let easeOutCurve: (Float) -> Float  // velocity profile: t in 0...1 → velocity in 1...0
 
-    public private(set) var startTime: Double = 0
+    let isLooping: Bool
+    let isPingPong: Bool
 
-    public init(
+    // Precomputed areas and matched linear speed
+    let A_in: Float
+    let A_out: Float
+    let v_linear: Float
+    let Tc: Float // central linear portion
+
+    init(
         spline: Spline3D,
         duration: Float,
-        easeIn: Float = 0.0,   // as a fraction of total time (0..1)
-        easeOut: Float = 0.0,  // as a fraction of total time (0..1)
-        easeInFunc: @escaping (Float) -> Float = Easing.easeIn,
-        easeOutFunc: @escaping (Float) -> Float = Easing.easeOut,
-        midFunc: @escaping (Float) -> Float = Easing.linear
+        easeInDuration: Float,
+        easeOutDuration: Float,
+        easeInCurve: @escaping (Float) -> Float,
+        easeOutCurve: @escaping (Float) -> Float,
+        isLooping: Bool = false,
+        isPingPong: Bool = false
     ) {
         self.spline = spline
         self.duration = duration
-        self.easeInTime = min(max(0, easeIn), 1)
-        self.easeOutTime = min(max(0, easeOut), 1 - easeIn)
-        self.linearTime = max(0, 1 - self.easeInTime - self.easeOutTime)
-        self.easeInFunc = easeInFunc
-        self.easeOutFunc = easeOutFunc
-        self.midFunc = midFunc
-        self.startTime = CACurrentMediaTime()
+        self.easeInDuration = easeInDuration
+        self.easeOutDuration = easeOutDuration
+        self.easeInCurve = easeInCurve
+        self.easeOutCurve = easeOutCurve
+        self.isLooping = isLooping
+        self.isPingPong = isPingPong
 
-        self.easeInArea = self.easeInTime > 0 ? integrate(easeInFunc, from: 0, to: 1, steps: 100) : 0
-        self.easeOutArea = self.easeOutTime > 0 ? integrate(easeOutFunc, from: 0, to: 1, steps: 100) : 0
-        self.easeInDistance = self.easeInTime * self.easeInArea
-        self.easeOutDistance = self.easeOutTime * self.easeOutArea
-        self.linearDistance = max(0, 1 - (self.easeInDistance + self.easeOutDistance))
-        self.totalDistance = self.easeInDistance + self.linearDistance + self.easeOutDistance
+        let T1 = easeInDuration
+        let T2 = easeOutDuration
+        let Tc = max(0, 1.0 - T1 - T2)
+        self.Tc = Tc
+
+        self.A_in = SplineAnimator.integrate(curve: easeInCurve, steps: 100)
+        self.A_out = SplineAnimator.integrate(curve: easeOutCurve, steps: 100)
+        // Compute linear velocity so that area under the whole velocity curve is 1.0
+        self.v_linear = 1.0 / (A_in * T1 + Tc + A_out * T2)
     }
 
-    public func position(now: Double? = nil) -> SIMD3<Float> {
-        let t = progress(now: now)
-        let d = distanceFraction(for: t)
-        return spline.point(atFraction: d)
+    /// Integrate curve from 0 to 1.
+    static func integrate(curve: (Float) -> Float, steps: Int) -> Float {
+        var sum: Float = 0
+        let dt = 1.0 / Float(steps)
+        for i in 0..<steps {
+            let t0 = Float(i) * dt
+            let t1 = t0 + dt
+            sum += 0.5 * (curve(t0) + curve(min(t1, 1.0))) * dt
+        }
+        return sum
     }
 
-    public func progress(now: Double? = nil) -> Float {
-        let currentTime = Float((now ?? CACurrentMediaTime()) - startTime)
-        let rawT = currentTime / duration
-        return rawT.truncatingRemainder(dividingBy: 1)
+    /// Integrate curve from 0 to `localT` (used for partial area).
+    static func integrate(curve: (Float) -> Float, upTo localT: Float, steps: Int) -> Float {
+        let localTClamped = min(max(localT, 0), 1)
+        if localTClamped <= 0 { return 0 }
+        var sum: Float = 0
+        let dt = localTClamped / Float(steps)
+        for i in 0..<steps {
+            let t0 = Float(i) * dt
+            let t1 = t0 + dt
+            sum += 0.5 * (curve(t0) + curve(min(t1, 1.0))) * dt
+        }
+        return sum
     }
 
-    public func distanceFraction(for t: Float) -> Float {
-        // Safety for edge cases
-        if totalDistance <= 0 { return 0 }
-        if t <= 0 { return 0 }
-        if t >= 1 { return 1 }
-
-        if t < easeInTime && easeInTime > 0 {
-            // Ease-in region
-            let localT = t / easeInTime
-            let area = integrate(easeInFunc, from: 0, to: localT, steps: 50)
-            let easeInSoFar = easeInTime * area
-            return min(1, (easeInSoFar) / totalDistance)
-        } else if t > 1 - easeOutTime && easeOutTime > 0 {
-            // Ease-out region
-            let localT = (t - (1 - easeOutTime)) / easeOutTime
-            let area = integrate(easeOutFunc, from: 0, to: localT, steps: 50)
-            let easeOutSoFar = easeOutTime * area
-            let distToLinearEnd = easeInDistance + linearDistance
-            return min(1, (distToLinearEnd + easeOutSoFar) / totalDistance)
+    /// Converts any elapsed time to normalized [0,1] progress, with support for looping and ping-pong.
+    private func normalizedTime(for elapsedTime: Float) -> Float {
+        guard duration > 0 else { return 0 }
+        if !isLooping {
+            return min(max(elapsedTime / duration, 0), 1)
+        }
+        if !isPingPong {
+            // Standard loop (0→1, 0→1, ...)
+            let t = fmodf(elapsedTime, duration) / duration
+            return t
         } else {
-            // Linear region
-            let t0 = easeInTime
-            let t1 = 1 - easeOutTime
-            let localT = (t - t0) / (t1 - t0)
-            let distToLinearStart = easeInDistance
-            let linearSoFar = localT * linearDistance
-            return min(1, (distToLinearStart + linearSoFar) / totalDistance)
+            // Ping-pong (0→1, 1→0, ...)
+            let doubleDuration = duration * 2
+            let t = fmodf(elapsedTime, doubleDuration)
+            if t < duration {
+                // Forward
+                return t / duration
+            } else {
+                // Backward
+                return 1 - ((t - duration) / duration)
+            }
         }
     }
 
-    public func restart(at now: Double = CACurrentMediaTime()) {
-        self.startTime = now
+    /// Returns the *arc-length fraction* (distance fraction) at a given normalized time t in [0,1].
+    /// (This is what you pass to your Spline3D to get position.)
+    func distanceFraction(at t: Float) -> Float {
+        let T1 = easeInDuration
+        let T2 = easeOutDuration
+        let Tc = self.Tc
+        let tClamped = min(max(t, 0), 1)
+
+        if tClamped <= T1, T1 > 0 {
+            // Ease-in phase
+            let localT = tClamped / T1
+            let area = SplineAnimator.integrate(
+                curve: easeInCurve,
+                upTo: localT,
+                steps: 50
+            )
+            return v_linear * area * T1
+        } else if tClamped < (1 - T2), Tc > 0 {
+            // Linear phase
+            let easeInDistance = v_linear * A_in * T1
+            let linearTime = tClamped - T1
+            return easeInDistance + v_linear * linearTime
+        } else if T2 > 0 {
+            // Ease-out phase
+            let easeInDistance = v_linear * A_in * T1
+            let linearDistance = v_linear * Tc
+            let localT = T2 == 0 ? 1 : (tClamped - (1 - T2)) / T2
+            let area = SplineAnimator.integrate(
+                curve: easeOutCurve,
+                upTo: localT,
+                steps: 50
+            )
+            return easeInDistance + linearDistance + v_linear * area * T2
+        } else {
+            // Should not occur, but fallback to end of spline
+            return 1.0
+        }
+    }
+
+    /// Main function: get position on the spline at the given elapsed time (seconds).
+    func position(at elapsedTime: Float) -> SIMD3<Float> {
+        let normT = normalizedTime(for: elapsedTime)
+        let arcFraction = distanceFraction(at: normT)
+        return spline.point(atFraction: arcFraction)
     }
 }
 
+
+/// Example quadratic and cubic velocity curves.
+/// (Use these as easeInCurve. For easeOutCurve, use mirrored or as shown.)
+struct VelocityCurves {
+    static let linear: (Float) -> Float = { _ in 1 }
+    static let quadraticIn: (Float) -> Float = { t in t * t }
+    static let quadraticOut: (Float) -> Float = { t in (1 - t) * (1 - t) }
+    static let cubicIn: (Float) -> Float = { t in t * t * t }
+    static let cubicOut: (Float) -> Float = { t in (1 - t) * (1 - t) * (1 - t) }
+    // You can also add s-curve, sinusoidal, etc, as needed.
+
+    /// Helper to mirror a curve (for ease-out)
+    static func mirrored(_ curve: @escaping (Float) -> Float) -> (Float) -> Float {
+        return { t in curve(1 - t) }
+    }
+}
