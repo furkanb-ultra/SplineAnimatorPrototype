@@ -59,16 +59,18 @@ final class SplineAnimator {
         
         // Clamp ease durations to not exceed total duration
         let totalEaseDuration = easeInDuration + easeOutDuration
+        let minPhaseDuration: Float = 0.01 // Minimum 10ms per phase to avoid precision issues
+        
         if totalEaseDuration >= duration {
             // If ease durations exceed total, scale them proportionally
-            let scale = (duration * 0.95) / totalEaseDuration // Leave 5% for constant phase
-            self.easeInDuration = easeInDuration * scale
-            self.easeOutDuration = easeOutDuration * scale
-            self.constantDuration = duration - self.easeInDuration - self.easeOutDuration
+            let scale = max(0.1, (duration * 0.9) / totalEaseDuration) // Leave 10% for constant, minimum 10% scale
+            self.easeInDuration = max(easeInDuration * scale, easeInDuration > 0 ? minPhaseDuration : 0)
+            self.easeOutDuration = max(easeOutDuration * scale, easeOutDuration > 0 ? minPhaseDuration : 0)
+            self.constantDuration = max(duration - self.easeInDuration - self.easeOutDuration, minPhaseDuration)
         } else {
-            self.easeInDuration = easeInDuration
-            self.easeOutDuration = easeOutDuration
-            self.constantDuration = duration - easeInDuration - easeOutDuration
+            self.easeInDuration = max(easeInDuration, easeInDuration > 0 ? minPhaseDuration : 0)
+            self.easeOutDuration = max(easeOutDuration, easeOutDuration > 0 ? minPhaseDuration : 0)
+            self.constantDuration = max(duration - self.easeInDuration - self.easeOutDuration, 0)
         }
         
         // Find maximum velocities of the curves to ensure peaks match constant velocity
@@ -105,17 +107,6 @@ final class SplineAnimator {
             self.easeInVelocityScale = 1.0 / easeInMaxVelocity
             self.easeOutVelocityScale = 1.0 / easeOutMaxVelocity
         }
-        
-        print("=== SplineAnimator Refactored (Peak Velocity Matched) ===")
-        print("Total Duration: \(duration)s")
-        print("Phase Durations: EaseIn=\(self.easeInDuration)s, Constant=\(self.constantDuration)s, EaseOut=\(self.easeOutDuration)s")
-        print("Distance Fractions: EaseIn=\(easeInDistanceFraction), EaseOut=\(easeOutDistanceFraction), Constant=\(1-easeInDistanceFraction-easeOutDistanceFraction)")
-        print("Constant Velocity: \(constantVelocity)")
-        print("Curve Max Velocities: EaseIn=\(easeInMaxVelocity), EaseOut=\(easeOutMaxVelocity)")
-        print("Curve Normalized Averages: EaseIn=\(easeInNormalizedAverage), EaseOut=\(easeOutNormalizedAverage)")
-        print("Velocity Scales: EaseIn=\(easeInVelocityScale), EaseOut=\(easeOutVelocityScale)")
-        print("Peak Velocities After Scaling: EaseIn=\(easeInMaxVelocity * easeInVelocityScale), EaseOut=\(easeOutMaxVelocity * easeOutVelocityScale)")
-        print("=========================================================")
     }
     
     // Calculate the maximum value of a curve over [0,1]
@@ -172,12 +163,14 @@ final class SplineAnimator {
         let t = max(0, min(1, normalizedTime))
         let timeInSeconds = t * duration
         
-        if timeInSeconds <= easeInDuration {
+        if timeInSeconds <= easeInDuration && easeInDuration > minPhaseDuration {
             return .easeIn
         } else if timeInSeconds <= (easeInDuration + constantDuration) {
             return .constant
-        } else {
+        } else if easeOutDuration > minPhaseDuration {
             return .easeOut
+        } else {
+            return .constant // Fallback to constant if phases are too short
         }
     }
     
@@ -186,45 +179,65 @@ final class SplineAnimator {
         let t = max(0, min(1, normalizedTime))
         let timeInSeconds = t * duration
         
-        if timeInSeconds <= easeInDuration && easeInDuration > 0 {
+        // Use higher precision for short durations
+        let integrationSamples = max(50, Int(1000 / duration))
+        
+        if timeInSeconds <= easeInDuration && easeInDuration > minPhaseDuration {
             // Ease-in phase
-            let phaseProgress = timeInSeconds / easeInDuration
-            let curveValue = easeInCurve(phaseProgress)
-            let velocityAtTime = curveValue * easeInVelocityScale
+            let phaseProgress = min(timeInSeconds / easeInDuration, 1.0)
             
-            // Integrate velocity over time to get distance
+            // For very short phases, use simpler calculation to avoid precision issues
+            if easeInDuration < 0.1 {
+                let avgVelocity = easeInCurve(0.5) * easeInVelocityScale
+                return min(phaseProgress * avgVelocity * easeInDuration, easeInDistanceFraction)
+            }
+            
             let distance = Self.integrateVelocityCurve(
                 curve: easeInCurve,
                 velocityScale: easeInVelocityScale,
                 upTo: phaseProgress,
-                duration: easeInDuration
+                duration: easeInDuration,
+                samples: integrationSamples
             )
             
-            return distance
+            return min(distance, easeInDistanceFraction)
             
         } else if timeInSeconds <= (easeInDuration + constantDuration) {
             // Constant phase
             let constantTimeElapsed = timeInSeconds - easeInDuration
             let constantDistance = constantTimeElapsed * constantVelocity
             
-            return easeInDistanceFraction + constantDistance
+            return min(easeInDistanceFraction + constantDistance, 1.0 - easeOutDistanceFraction)
             
-        } else {
+        } else if easeOutDuration > minPhaseDuration {
             // Ease-out phase
             let easeOutTimeElapsed = timeInSeconds - easeInDuration - constantDuration
-            let phaseProgress = easeOutDuration > 0 ? easeOutTimeElapsed / easeOutDuration : 0
+            let phaseProgress = min(easeOutTimeElapsed / easeOutDuration, 1.0)
+            
+            // For very short phases, use simpler calculation
+            if easeOutDuration < 0.1 {
+                let avgVelocity = easeOutCurve(0.5) * easeOutVelocityScale
+                let easeOutDistance = min(phaseProgress * avgVelocity * easeOutDuration, easeOutDistanceFraction)
+                return min(1.0 - easeOutDistanceFraction + easeOutDistance, 1.0)
+            }
             
             let easeOutDistance = Self.integrateVelocityCurve(
                 curve: easeOutCurve,
                 velocityScale: easeOutVelocityScale,
                 upTo: phaseProgress,
-                duration: easeOutDuration
+                duration: easeOutDuration,
+                samples: integrationSamples
             )
             
             let totalProgress = easeInDistanceFraction + (1 - easeInDistanceFraction - easeOutDistanceFraction) + easeOutDistance
             return min(totalProgress, 1.0)
+        } else {
+            // No ease-out phase or very short - just return linear progress
+            return min(t, 1.0)
         }
     }
+    
+    private let minPhaseDuration: Float = 0.01
     
     // Integrate a velocity curve over time to get distance traveled
     private static func integrateVelocityCurve(
@@ -267,14 +280,14 @@ final class SplineAnimator {
         let normalizedT = normalizedTime(for: elapsedTime)
         let timeInSeconds = normalizedT * duration
         
-        if timeInSeconds <= easeInDuration && easeInDuration > 0 {
-            let phaseProgress = timeInSeconds / easeInDuration
+        if timeInSeconds <= easeInDuration && easeInDuration > minPhaseDuration {
+            let phaseProgress = min(timeInSeconds / easeInDuration, 1.0)
             return easeInCurve(phaseProgress) * easeInVelocityScale
         } else if timeInSeconds <= (easeInDuration + constantDuration) {
             return constantVelocity
-        } else if easeOutDuration > 0 {
+        } else if easeOutDuration > minPhaseDuration {
             let easeOutTimeElapsed = timeInSeconds - easeInDuration - constantDuration
-            let phaseProgress = easeOutTimeElapsed / easeOutDuration
+            let phaseProgress = min(easeOutTimeElapsed / easeOutDuration, 1.0)
             return easeOutCurve(phaseProgress) * easeOutVelocityScale
         } else {
             return constantVelocity

@@ -34,13 +34,13 @@ struct ImmersiveView: View {
 
             let animator = SplineAnimator(
                 spline: spline,
-                duration: 10,
-                easeInDuration: 1,
-                easeOutDuration: 8,
-                easeInCurve: VelocityCurves.quadraticOut,
-                easeOutCurve: VelocityCurves.quadraticIn,
+                duration: 5,
+                easeInDuration: 4,
+                easeOutDuration: 1.0,
+                easeInCurve: VelocityCurves.quadraticIn,
+                easeOutCurve: VelocityCurves.quadraticOut,
                 isLooping: true,
-                isPingPong: true
+                isPingPong: false
             )
             self.animator = animator
             self.startTime = Date()
@@ -75,21 +75,10 @@ struct ImmersiveView: View {
         for (index, position) in points.enumerated() {
             let controlPointSphere = ModelEntity(
                 mesh: .generateSphere(radius: 0.025),
-                materials: [SimpleMaterial(color: colorForControlPoint(at: index, total: points.count), isMetallic: false)]
+                materials: [SimpleMaterial(color: .blue, isMetallic: false)]
             )
             controlPointSphere.position = position
             content.add(controlPointSphere)
-        }
-    }
-
-    private func colorForControlPoint(at index: Int, total: Int) -> UIColor {
-        switch index {
-        case 0:
-            return .orange // Start - Orange
-        case total - 1:
-            return .blue // End - Blue
-        default:
-            return .white
         }
     }
 }
