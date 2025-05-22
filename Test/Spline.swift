@@ -15,7 +15,7 @@ public struct Spline3D {
     public let totalLength: Float
     private let arcLengthLUT: [(t: Float, length: Float)]
 
-    public init(_ points: [SIMD3<Float>], lutResolution: Int = 100) {
+    public init(_ points: [SIMD3<Float>], lutResolution: Int = 500) {
         precondition(points.count >= 2, "Need at least 2 points for a spline")
         self.points = points
 

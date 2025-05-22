@@ -66,8 +66,8 @@ final class SplineAnimator {
         let Tc = max(0, 1.0 - T1 - T2)
         self.Tc = Tc
 
-        self.A_in = SplineAnimator.integrate(curve: easeInCurve, steps: 100)
-        self.A_out = SplineAnimator.integrate(curve: easeOutCurve, steps: 100)
+        self.A_in = SplineAnimator.integrate(curve: easeInCurve, steps: 1000)
+        self.A_out = SplineAnimator.integrate(curve: easeOutCurve, steps: 1000)
         self.v_linear = 1.0 / (A_in * T1 + Tc + A_out * T2)
     }
 

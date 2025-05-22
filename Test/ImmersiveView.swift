@@ -12,7 +12,6 @@ import Combine
 
 struct ImmersiveView: View {
     @State private var cancellable: Cancellable?
-    //aws@State private var animator: SimpleSplineAnimator?
     @State private var animator: SplineAnimator?
     @State private var startTime: Date?
     
@@ -59,13 +58,13 @@ struct ImmersiveView: View {
             } as? any Cancellable
         }
     }
-    private func visualizeSpline(_ spline: Spline3D, content: RealityViewContent, segments: Int = 50) {
+    private func visualizeSpline(_ spline: Spline3D, content: RealityViewContent, segments: Int = 100) {
         for i in 0...segments {
             let fraction = Float(i) / Float(segments)
             let position = spline.point(atFraction: fraction)
             let sphere = ModelEntity(
                 mesh: .generateSphere(radius: 0.01),
-                materials: [UnlitMaterial(color: .blue.withAlphaComponent(0.5))]
+                materials: [UnlitMaterial(color: .blue.withAlphaComponent(0.1))]
             )
             sphere.position = position
             content.add(sphere)
