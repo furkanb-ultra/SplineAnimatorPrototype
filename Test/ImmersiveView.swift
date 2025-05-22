@@ -34,11 +34,11 @@ struct ImmersiveView: View {
 
             let animator = SplineAnimator(
                 spline: spline,
-                duration: 10.0,
-                easeInDuration: 0.25,
-                easeOutDuration: 0.25,
-                easeInCurve: VelocityCurves.cubicIn,
-                easeOutCurve: VelocityCurves.cubicOut,
+                duration: 10,
+                easeInDuration: 1,
+                easeOutDuration: 8,
+                easeInCurve: VelocityCurves.quadraticOut,
+                easeOutCurve: VelocityCurves.quadraticIn,
                 isLooping: true,
                 isPingPong: true
             )
@@ -72,13 +72,24 @@ struct ImmersiveView: View {
     }
 
     private func visualizeControlPoints(_ points: [SIMD3<Float>], content: RealityViewContent) {
-        for position in points {
+        for (index, position) in points.enumerated() {
             let controlPointSphere = ModelEntity(
                 mesh: .generateSphere(radius: 0.025),
-                materials: [SimpleMaterial(color: .blue, isMetallic: false)]
+                materials: [SimpleMaterial(color: colorForControlPoint(at: index, total: points.count), isMetallic: false)]
             )
             controlPointSphere.position = position
             content.add(controlPointSphere)
+        }
+    }
+
+    private func colorForControlPoint(at index: Int, total: Int) -> UIColor {
+        switch index {
+        case 0:
+            return .orange // Start - Orange
+        case total - 1:
+            return .blue // End - Blue
+        default:
+            return .white
         }
     }
 }
