@@ -143,7 +143,7 @@ final class SplineAnimator {
             let t = cycles - floor(cycles) // Get fractional part
             return t
         } else {
-            // Ping-pong: 0→1→0→1...
+            // Ping-pong: 0→1-1→0-0→1-1→0...
             let halfCycle = duration
             let fullCycle = duration * 2
             let cycleTime = elapsedTime.truncatingRemainder(dividingBy: fullCycle)
