@@ -4,6 +4,7 @@
 //
 //  Created by Furkan on 26/05/25.
 //
+
 import SwiftUI
 import RealityKit
 import RealityKitContent
@@ -53,6 +54,37 @@ class ControlPointEntity: Entity, HasModel, HasCollision {
     }
 }
 
+// MARK: - DraggableWindow
+/// A modular floating window you can drag around
+struct DraggableWindow<Content: View>: View {
+    @State private var offset: CGSize = CGSize(width: 20, height: 20)
+    @State private var dragStartOffset: CGSize? = nil
+    let content: Content
+
+    var body: some View {
+        content
+            .frame(width: 500, height: 500)
+            .background(.regularMaterial)
+            .cornerRadius(12)
+            .offset(offset)
+            .gesture(
+                DragGesture()
+                    .onChanged { value in
+                        if dragStartOffset == nil {
+                            dragStartOffset = offset
+                        }
+                        offset = CGSize(
+                            width: dragStartOffset!.width + value.translation.width,
+                            height: dragStartOffset!.height + value.translation.height
+                        )
+                    }
+                    .onEnded { _ in
+                        dragStartOffset = nil
+                    }
+            )
+    }
+}
+
 // MARK: - SplineEditorView
 struct SplineEditorView: View {
     @State private var editState = SplineEditState()
@@ -65,98 +97,81 @@ struct SplineEditorView: View {
     @State private var dragStartOffset: Float? = nil
 
     var body: some View {
-        RealityView { content in
-            content.add(rootEntity)
-            createControlPoints()
-            updateSplineVisualization()
-        } update: { content in
-            updateSplineVisualization()
-        }
-        .gesture(
-            SpatialTapGesture()
-                .targetedToAnyEntity()
-                .onEnded { value in
-                    guard editState.isEditMode else { return }
-                    if let cp = value.entity as? ControlPointEntity {
-                        selectControlPoint(cp.index)
+        ZStack {
+            RealityView { content in
+                content.add(rootEntity)
+                createControlPoints()
+                updateSplineVisualization()
+            } update: { content in
+                updateSplineVisualization()
+            }
+            .gesture(
+                SpatialTapGesture()
+                    .targetedToAnyEntity()
+                    .onEnded { value in
+                        guard editState.isEditMode else { return }
+                        if let cp = value.entity as? ControlPointEntity {
+                            selectControlPoint(cp.index)
+                        }
                     }
-                }
-        )
-        .simultaneousGesture(
-            DragGesture()
-                .targetedToAnyEntity()
-                .onChanged { value in
-                    guard
-                        let arrow = value.entity as? ModelEntity,
-                        let selected = editState.selectedControlPointIndex,
-                        let gizmo = gizmoEntity,
-                        arrowEntities.contains(arrow)
-                    else { return }
+            )
+            .simultaneousGesture(
+                DragGesture()
+                    .targetedToAnyEntity()
+                    .onChanged { value in
+                        guard
+                            let arrow = value.entity as? ModelEntity,
+                            let selected = editState.selectedControlPointIndex,
+                            let gizmo = gizmoEntity,
+                            arrowEntities.contains(arrow)
+                        else { return }
 
-                    // Convert 3D gesture location to rootEntity space
-                    let worldPos = value.location3D
-                    let localPos = value.convert(worldPos,
-                                                 from: .global,
-                                                 to: rootEntity)
+                        let worldPos = value.location3D
+                        let localPos = value.convert(worldPos,
+                                                     from: .global,
+                                                     to: rootEntity)
 
-                    // Initialize drag context
-                    if dragStartCPPosition == nil {
-                        dragStartCPPosition = editState.controlPoints[selected]
-                        // Axis from arrow's local +Y axis
-                        let rawAxis = arrow.orientation.act([0,1,0])
-                        let axis = normalize(rawAxis)
-                        dragAxisDir = axis
-                        // Compute initial offset so we don't jump
-                        dragStartOffset = dot(localPos - dragStartCPPosition!, axis)
+                        if dragStartCPPosition == nil {
+                            dragStartCPPosition = editState.controlPoints[selected]
+                            let rawAxis = arrow.orientation.act([0,1,0])
+                            dragAxisDir = normalize(rawAxis)
+                            dragStartOffset = dot(localPos - dragStartCPPosition!,
+                                                  dragAxisDir!)
+                        }
+
+                        guard
+                            let initialPos = dragStartCPPosition,
+                            let axisDir = dragAxisDir,
+                            let startOff = dragStartOffset
+                        else { return }
+
+                        let raw = dot(localPos - initialPos, axisDir)
+                        let delta = raw - startOff
+                        let newPos = initialPos + axisDir * delta
+
+                        editState.controlPoints[selected] = newPos
+                        controlPointEntities[selected].position = newPos
+                        gizmo.position = newPos
+                        updateSplineVisualization()
                     }
-
-                    guard
-                        let initialPos = dragStartCPPosition,
-                        let axisDir = dragAxisDir,
-                        let startOff = dragStartOffset
-                    else { return }
-
-                    // Compute how far we've moved along the axis
-                    let raw = dot(localPos - initialPos, axisDir)
-                    let delta = raw - startOff
-                    let newPos = initialPos + axisDir * delta
-
-                    // Update state and visuals
-                    editState.controlPoints[selected] = newPos
-                    controlPointEntities[selected].position = newPos
-                    gizmo.position = newPos
-                    updateSplineVisualization()
-                }
-                .onEnded { _ in
-                    dragStartCPPosition = nil
-                    dragAxisDir = nil
-                    dragStartOffset = nil
-                }
-        )
-        .ornament(attachmentAnchor: .scene(.bottom)) {
-            VStack {
+                    .onEnded { _ in
+                        dragStartCPPosition = nil
+                        dragAxisDir = nil
+                        dragStartOffset = nil
+                    }
+            )
+            .ornament(attachmentAnchor: .scene(.bottom)) {
                 Toggle("Edit Mode", isOn: $editState.isEditMode)
                     .toggleStyle(.button)
                     .padding()
-
-                if editState.isEditMode {
-                    HStack {
-                        Image(systemName: "hand.tap.fill")
-                        Text("Tap a sphere to select")
-                    }
-                    .font(.caption)
-                    .foregroundColor(.blue)
-
-                    if let sel = editState.selectedControlPointIndex {
-                        Text("Selected: Point \(sel)")
-                            .font(.caption2)
-                            .foregroundColor(.orange)
-                    }
-                }
+                    .background(.regularMaterial)
+                    .cornerRadius(12)
             }
-            .padding()
-            .background(.regularMaterial)
-            .cornerRadius(12)
+
+            // Modular draggable points window
+            DraggableWindow(content:
+                PointsWindow(controlPoints: editState.controlPoints)
+            )
         }
     }
 
@@ -228,7 +243,6 @@ struct SplineEditorView: View {
         rootEntity.addChild(splineEntity)
 
         let spline = Spline3D(editState.controlPoints)
-        // Adaptive segment count based on spline length
         let length = spline.totalLength
         let segments = Int(max(10, min(200, length * 10)))
         let config = SplineVisualizationConfig(
@@ -250,8 +264,28 @@ struct SplineEditorView: View {
     }
 }
 
+// MARK: - PointsWindow
+struct PointsWindow: View {
+    let controlPoints: [SIMD3<Float>]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Control Points")
+                .font(.headline)
+            ForEach(controlPoints.indices, id: \.self) { i in
+                let p = controlPoints[i]
+                Text(String(format: "%d: (%.2f, %.2f, %.2f)", i, p.x, p.y, p.z))
+                    .font(.system(.caption, design: .monospaced))
+            }
+        }
+        .padding()
+    }
+}
+
 #Preview(immersionStyle: .mixed) {
     SplineEditorView()
 }
+
+
 // Debug window to monitor control point locations with X,Y,Z coordinates.
 // JSON exporter to have tangible final locations saved somewhere.
