@@ -1,9 +1,11 @@
 //
-//  EditableSplinePreview.swift
+//  SplineEditorView.swift
 //  Test
 //
 //  Created by Furkan on 26/05/25.
 //
+//
+
 
 import SwiftUI
 import RealityKit
@@ -54,8 +56,8 @@ class ControlPointEntity: Entity, HasModel, HasCollision {
     }
 }
 
-// MARK: - EditableSplinePreview View
-struct EditableSplinePreview: View {
+// MARK: - SplineEditorView View
+struct SplineEditorView: View {
     @State private var editState = SplineEditState()
     @State private var controlPointEntities: [ControlPointEntity] = []
     @State private var rootEntity = Entity()
@@ -195,5 +197,5 @@ struct EditableSplinePreview: View {
 }
 
 #Preview(immersionStyle: .mixed) {
-    EditableSplinePreview()
+    SplineEditorView()
 }
