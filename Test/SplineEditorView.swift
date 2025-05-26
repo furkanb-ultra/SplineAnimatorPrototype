@@ -253,3 +253,5 @@ struct SplineEditorView: View {
 #Preview(immersionStyle: .mixed) {
     SplineEditorView()
 }
+// Debug window to monitor control point locations with X,Y,Z coordinates.
+// JSON exporter to have tangible final locations saved somewhere.
