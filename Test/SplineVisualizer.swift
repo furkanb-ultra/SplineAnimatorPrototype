@@ -2,7 +2,7 @@
 //  SplineVisualizer.swift
 //  Test
 //
-//  Created by Furkan on 23/05/25.
+//  Updated by Furkan on 26/05/25.
 //
 
 import RealityKit
@@ -46,7 +46,7 @@ class SplineVisualizer {
     private func createSplinePointEntity() -> ModelEntity {
         return ModelEntity(
             mesh: .generateSphere(radius: config.splinePointRadius),
-            materials: [UnlitMaterial(color: config.splinePointColor.withAlphaComponent(0.5))]
+            materials: [UnlitMaterial(color: config.splinePointColor.withAlphaComponent(CGFloat(config.splineOpacity)))]
         )
     }
     
@@ -89,4 +89,46 @@ struct SplineVisualizationConfig {
         controlPointColor: .red,
         splineOpacity: 0.05
     )
+
+    // 🚩 New editor preset added
+    static let editor = SplineVisualizationConfig(
+        showSplinePath: true,
+        showControlPoints: true,
+        splineSegments: 100,
+        splinePointRadius: 0.008,
+        splinePointColor: .blue,
+        controlPointRadius: 0.03,
+        controlPointColor: .blue,
+        splineOpacity: 0.2
+    )
+}
+
+extension SplineVisualizer {
+    func visualize(spline: Spline3D, controlPoints: [SIMD3<Float>], parentEntity: Entity) {
+        if config.showSplinePath {
+            visualizeSplinePath(spline, parentEntity: parentEntity)
+        }
+        
+        if config.showControlPoints {
+            visualizeControlPoints(controlPoints, parentEntity: parentEntity)
+        }
+    }
+
+    private func visualizeSplinePath(_ spline: Spline3D, parentEntity: Entity) {
+        for i in 0...config.splineSegments {
+            let fraction = Float(i) / Float(config.splineSegments)
+            let position = spline.point(atFraction: fraction)
+            let sphere = createSplinePointEntity()
+            sphere.position = position
+            parentEntity.addChild(sphere)
+        }
+    }
+
+    private func visualizeControlPoints(_ points: [SIMD3<Float>], parentEntity: Entity) {
+        for position in points {
+            let sphere = createControlPointEntity()
+            sphere.position = position
+            parentEntity.addChild(sphere)
+        }
+    }
 }
