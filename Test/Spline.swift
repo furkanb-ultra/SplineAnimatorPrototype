@@ -79,6 +79,29 @@ public struct Spline3D {
         return pointRaw(at: t)
     }
 
+    // NEW: Calculate tangent (forward direction) at any point on the spline
+    public func tangent(atFraction fraction: Float) -> SIMD3<Float> {
+        let clampedFraction = max(0, min(1, fraction))
+        
+        // Use small epsilon for numerical differentiation
+        let epsilon: Float = 0.001
+        let t1 = max(0, clampedFraction - epsilon/2)
+        let t2 = min(1, clampedFraction + epsilon/2)
+        
+        let p1 = point(atFraction: t1)
+        let p2 = point(atFraction: t2)
+        
+        let tangent = p2 - p1
+        let length = simd_length(tangent)
+        
+        // Return normalized tangent, or default forward if zero length
+        if length > 0.0001 {
+            return tangent / length
+        } else {
+            return SIMD3<Float>(0, 0, -1) // Default forward direction
+        }
+    }
+
     private func pointRaw(at t: Float) -> SIMD3<Float> {
         let scaledT = t * Float(points.count - 1)
         return SIMD3<Float>(

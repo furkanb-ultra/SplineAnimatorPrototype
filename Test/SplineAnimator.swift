@@ -25,6 +25,11 @@ final class SplineAnimator {
     let isLooping: Bool
     let isPingPong: Bool
     
+    // NEW: Rotation support
+    let followSplineRotation: Bool
+    private var initialOrientation: simd_quatf?
+    private var hasInitialized: Bool = false
+    
     // Computed physics properties
     private let constantVelocity: Float
     private let easeInVelocityScale: Float
@@ -48,7 +53,8 @@ final class SplineAnimator {
         easeInCurve: @escaping (Float) -> Float = { _ in 1.0 },
         easeOutCurve: @escaping (Float) -> Float = { _ in 1.0 },
         isLooping: Bool = false,
-        isPingPong: Bool = false
+        isPingPong: Bool = false,
+        followSplineRotation: Bool = false
     ) {
         self.spline = spline
         self.duration = max(0.1, duration) // Minimum duration safety
@@ -56,6 +62,11 @@ final class SplineAnimator {
         self.isPingPong = isPingPong
         self.easeInCurve = easeInCurve
         self.easeOutCurve = easeOutCurve
+        
+        // NEW: Initialize rotation properties
+        self.followSplineRotation = followSplineRotation
+        self.initialOrientation = nil
+        self.hasInitialized = false
         
         // Clamp ease durations to not exceed total duration
         let totalEaseDuration = easeInDuration + easeOutDuration
@@ -275,6 +286,34 @@ final class SplineAnimator {
         return spline.point(atFraction: splineT)
     }
     
+    // NEW: Get the orientation at given elapsed time
+    func orientation(at elapsedTime: Float, currentOrientation: simd_quatf) -> simd_quatf {
+        guard followSplineRotation else {
+            return currentOrientation // Don't change anything if disabled
+        }
+        
+        // Capture the initial orientation on first call
+        if !hasInitialized {
+            initialOrientation = currentOrientation
+            hasInitialized = true
+        }
+        
+        guard let initialOrientation = initialOrientation else {
+            return currentOrientation
+        }
+        
+        let normalizedT = normalizedTime(for: elapsedTime)
+        let splineT = splineProgress(at: normalizedT)
+        let currentTangent = spline.tangent(atFraction: splineT)
+        let initialTangent = spline.tangent(atFraction: 0) // First frame tangent
+        
+        // Calculate rotation from initial tangent to current tangent
+        let tangentRotation = simd_quatf(from: initialTangent, to: currentTangent)
+        
+        // Apply this rotation to the initial orientation
+        return tangentRotation * initialOrientation
+    }
+    
     // Get current velocity magnitude (units per second)
     func currentVelocity(at elapsedTime: Float) -> Float {
         let normalizedT = normalizedTime(for: elapsedTime)
@@ -308,6 +347,7 @@ final class SplineAnimator {
         Spline Progress: \(String(format: "%.1f", splineT * 100))%
         Current Velocity: \(String(format: "%.2f", velocity))
         Phase Durations: EaseIn=\(easeInDuration)s, Constant=\(constantDuration)s, EaseOut=\(easeOutDuration)s
+        Follow Rotation: \(followSplineRotation)
         """
     }
 }
@@ -325,23 +365,4 @@ struct VelocityCurves {
     static let cubicIn: (Float) -> Float = { t in 3 * t * t } // Derivative of t³
     static let cubicOut: (Float) -> Float = { t in 3 * (1 - t) * (1 - t) } // Derivative of -(t-1)³
     
-    // Sine wave easing
-    static let sineIn: (Float) -> Float = { t in
-        let angle = t * Float.pi / 2
-        return cos(angle) * Float.pi / 2 // Derivative of sin
-    }
-    static let sineOut: (Float) -> Float = { t in
-        let angle = (1 - t) * Float.pi / 2
-        return cos(angle) * Float.pi / 2
-    }
-    
-    // Exponential easing
-    static let exponentialIn: (Float) -> Float = { t in
-        guard t > 0 else { return 0 }
-        return pow(2, 10 * (t - 1)) * log(2) * 10
-    }
-    static let exponentialOut: (Float) -> Float = { t in
-        guard t < 1 else { return 0 }
-        return -pow(2, -10 * t) * log(2) * 10
-    }
 }
